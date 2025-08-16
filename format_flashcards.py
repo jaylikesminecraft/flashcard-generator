@@ -1,10 +1,16 @@
+'''
+: <strong>
+: [
+'''
+
+
 import os
 import re
 import shutil
 import markdown
 import pandas as pd
 import csv
-
+from bs4 import BeautifulSoup
 
 # ===============================
 # CONFIGURATION
@@ -16,17 +22,29 @@ SORT_IDS_CSV = "sortIDs.csv"
 AUDIO_FOLDER = "audio"
 USED_AUDIO_FOLDER = "usedAudio"
 
-REQUIRED_SECTIONS = ["Meaning", "Reading", "Part of Speech"]
-CSV_HEADER = ["word", "meaning", "reading", "part_speech", "content", "audio", "sort_id", "tags"]
+SECTIONS = [
+    "Meaning",
+    "Reading",
+    "Part of Speech",
+    "Kanji Breakdown",
+    "Grammar Notes",
+    "Common Phrases",
+    "Example Sentences",
+    "Formality Level",
+    "Context",
+    "Synonyms",
+    "Antonyms",
+]
+
+# 2. Define the extra columns you want to add with empty placeholders.
+EXTRA_COLUMNS = ["audio", "sort_id"]
+CSV_HEADER = ["word"] + SECTIONS + EXTRA_COLUMNS
 
 
-# ===============================
-# PART 1 - GENERATE FLASHCARDS CSV
-# ===============================
 def generate_flashcards():
     """Parses card files into a flashcards CSV and logs failures."""
-    with open(FLASHCARDS_CSV, "w", encoding="utf-8") as csv_file, \
-         open(FAILED_CSV, "w", encoding="utf-8") as failed_file:
+    with open(FLASHCARDS_CSV, "w", encoding="utf-8", newline="") as csv_file, \
+         open(FAILED_CSV, "w", encoding="utf-8", newline="") as failed_file:
         
         csv_file.write("\t".join(CSV_HEADER) + "\n")
 
@@ -35,38 +53,54 @@ def generate_flashcards():
                 continue
             
             filepath = os.path.join(CARDS_FOLDER, filename)
-            kanji = filename.replace(".txt", "")
+            word = filename.replace(".txt", "")
 
             with open(filepath, "r", encoding="utf-8") as card_file:
                 card_html = markdown.markdown(card_file.read())
 
-            found_sections = []
-            content = ""
+            soup = BeautifulSoup(card_html, 'lxml')
+            
+            section_data = {}
+            has_missing_parts = False
 
-            for line in card_html.splitlines():
-                add_to_content = True
-                for section in REQUIRED_SECTIONS:
-                    section_name = f"<li><strong>{section}:</strong>"
-                    if section_name in line:
-                        found_sections.append(
-                            line.replace(section_name, "").replace("</li>", "").strip()
-                        )
-                        add_to_content = False
-                        break
+            for section_name in SECTIONS:
+                h3_tag = soup.find('h3', string=section_name)
+                
+                if h3_tag and h3_tag.find_next_sibling():
+                    # <<< CHANGE: Convert the found H3 tag to its string representation
+                    h3_html = str(h3_tag)
+                    
+                    content_tag = h3_tag.find_next_sibling()
+                    content_html = ""
 
-                if "flashcard" in line:
-                    continue
-                elif add_to_content:
-                    content += line
-
-            if len(found_sections) != len(REQUIRED_SECTIONS):
-                print(f"[WARN] {kanji} has missing parts")
-                failed_file.write(kanji + "\n")
+                    if content_tag.name == 'ul':
+                        li_items = [li.decode_contents().strip() for li in content_tag.find_all('li')]
+                        content_html = "<br>".join(li_items)
+                    else:
+                        content_html = content_tag.decode_contents().strip()
+                    
+                    # <<< CHANGE: Prepend the H3 HTML to the content
+                    # We also wrap the content in a div for better structure, which is optional but good practice.
+                    final_content = f"{h3_html}<div>{content_html}</div>"
+                    
+                    # Clean up any literal newlines that might mess up the CSV
+                    section_data[section_name] = final_content.replace('\n', ' ')
+                    
+                else:
+                    section_data[section_name] = ""
+                    has_missing_parts = True
+            
+            extra_column_placeholders = [""] * len(EXTRA_COLUMNS)
+            parsed_section_values = [section_data.get(s, "") for s in SECTIONS]
+            row_data = [word] + parsed_section_values + extra_column_placeholders
+            
+            if has_missing_parts:
+                print(f"[WARN] {word} has missing parts")
+                failed_file.write(word + "\n")
+                csv_file.write("\t".join(row_data) + "\n")
             else:
-                print(f"[OK] {kanji}")
-                csv_file.write(
-                    f"{kanji}\t" + "\t".join(found_sections) + f"\t{content}\n"
-                )
+                csv_file.write("\t".join(row_data) + "\n")
+                print(f"[OK] {word}")
 
 
 # ===============================

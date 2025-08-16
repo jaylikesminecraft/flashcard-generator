@@ -19,6 +19,8 @@ def create_flashcard(word, model_name):
     response = worker_client.chat.completions.create(
         model=model_name,
         messages=messages,
+        max_tokens=8192,
+        temperature=1.3,
     )
     return response.choices[0].message.content
 
@@ -59,6 +61,7 @@ def process_word(word, model_name, skip_processed, processed_words, last_call_ti
 
         except Exception as e:
             attempts += 1
+            print(e)
             print(f"ERROR processing '{word}' (Attempt {attempts}/{max_attempts}). Retrying...")
             if attempts < max_attempts:
                 time.sleep(5 * attempts) # Exponential backoff
@@ -72,10 +75,10 @@ def main():
 
     # --- Load Configuration from .env file ---
     api_key = os.getenv("API_KEY")
-    api_base_url = os.getenv("API_BASE_URL", "https://api.deepseek.com")
-    model_name = os.getenv("MODEL_NAME", "deepseek-chat")
-    input_file = os.getenv("INPUT_FILE", "words.csv")
-    num_workers = int(os.getenv("WORKERS", 5))
+    api_base_url = os.getenv("API_BASE_URL", None)
+    model_name = os.getenv("MODEL_NAME")
+    input_file = os.getenv("INPUT_FILE")
+    num_workers = int(os.getenv("WORKERS", 1))
     rpm = int(os.getenv("RPM", 0))
     # Convert string "true" or "false" to boolean
     skip_processed = os.getenv("SKIP_PROCESSED", "true").lower() in ('true', '1', 't')
